@@ -14,26 +14,12 @@ var SitemapID = make(map[int]string)
 func init() {
 	var err error
 	//Папка сравнения
-	_, err = os.Stat("compare")
-	if os.IsNotExist(err) {
-		if err := os.Mkdir("compare", 0777); err != nil {
-			log.Fatal(err.Error())
-		}
-	}
+	CheckDir("compare")
 	//Папка результата
-	_, err = os.Stat("result")
-	if os.IsNotExist(err) {
-		if err := os.Mkdir("result", 0777); err != nil {
-			log.Fatal(err.Error())
-		}
-	}
+	CheckDir("result")
 	//Папка настройки
-	_, err = os.Stat("config")
-	if os.IsNotExist(err) {
-		if err := os.Mkdir("config", 0777); err != nil {
-			log.Fatal(err.Error())
-		}
-	}
+	CheckDir("config")
+	
 	//Белый список и синонимы
 	_, err2 := os.Stat("config/sites.txt")
 	file, err := os.OpenFile("config/sites.txt", os.O_RDWR|os.O_APPEND|os.O_CREATE, 0777)
