@@ -3,83 +3,27 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
-	"gorm.io/gorm/logger"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
 
-var Fullmap = make(map[string]bool)
-var Addmap = make(map[int][]string)
-
-type FileId struct {
-	gorm.Model
-	//Делаем ссылку уникальной, иначе gorm clause работать не будет
-	Link string `gorm:"unique"`
-	Hash string
-}
-
-func init() {
-}
-
-func addlines(siteID int, link []string, lockCh chan<- string) {
-	//Получим название файла
-	site := SitemapID[siteID]
-	//Пишем в базу только то, что нужно
-	if siteID != 0 {
-		//Создаем папку, если ее нет
-		CheckDir("result/" + site)
-		db, err := gorm.Open(sqlite.Open("result/"+site+"/database.db"), &gorm.Config{
-			//Меняем уровень логера, тк при создании 200+ строк выскакивают предупреждения о скорости
-			Logger: logger.Default.LogMode(logger.Error),
-		})
-		if err != nil {
-			panic("failed to connect database")
-		}
-		db.AutoMigrate(&FileId{})
-		var files = []FileId{}
-		//Создаем записи в дб для новых строк
-		for _, k := range link {
-			files = append(files, FileId{Link: k, Hash: ""})
-		}
-		db.Model(&FileId{}).Clauses(clause.OnConflict{
-			DoNothing: true,
-		}).Create(&files)
-
-        sqlDB, _ := db.DB()
-        sqlDB.Close()
-	}
-
-	//Откроем-создадим файл для дозаписи новых строк
-	fi, err := os.OpenFile("result/"+site+".txt", os.O_RDWR|os.O_APPEND|os.O_CREATE, 0777)
-	if err != nil {
-		panic(err)
-	}
-	defer fi.Close()
-	for _, k := range link {
-		_, err = fi.WriteString(k + "\n")
-		if err != nil {
-			panic(err)
-		}
-	}
-	lockCh <- site
-}
-
 func main() {
-	fillmap("result")
-	fillmap("compare")
+	var addmap = make(map[int][]string)
+	filladdmap(addmap)
+	//Запомним - какие из сайтов были запущены, а какие - нужно запустить
+	var SitemapUsed = make(map[int]bool)
 	var gorocounter int
 	lockCh := make(chan string)
 	StartTime := time.Now()
-	for siteID, link := range Addmap {
+	for siteID, link := range addmap {
 		gorocounter++
 		go addlines(siteID, link, lockCh)
+		SitemapUsed[siteID] = true
 	}
 	for gorocounter > 0 {
 		fmt.Printf("%v - %v\n", <-lockCh, time.Since(StartTime))
@@ -108,7 +52,13 @@ func main() {
 	fmt.Println("ContentLength:", res.ContentLength)
 }
 
-func fillmap(fname string) {
+func filladdmap(addmap map[int][]string) {
+	var fullmap = make(map[string]bool)
+	fillmap("result", addmap, fullmap)
+	fillmap("compare", addmap, fullmap)
+}
+
+func fillmap(fname string, addmap map[int][]string, fullmap map[string]bool) {
 	adf := false
 	if fname != "result" {
 		adf = true
@@ -132,36 +82,55 @@ func fillmap(fname string) {
 			scanner := bufio.NewScanner(file)
 			for scanner.Scan() {
 				text := scanner.Text()
+
 				//Если уже есть, то пропускаем
-				_, ok := Fullmap[text]
-				if ok {
+				_, ok := fullmap[text]
+				if ok || text == "" {
 					continue
 				}
 				if adf {
+					domain := extractDomain(text)
+
 					var siteID int
-					if !strings.HasPrefix(text, "_") {
-						url, err := url.Parse(text)
-						if err != nil {
-							log.Fatal(err, " - ", text)
-						}
-						surl := strings.Split(url.Hostname(), ".")
-						site := surl[max(len(surl)-2, 0)]
-						siteID, ok = Sitemap[site]
-						//Если сайт в списке нужных, то увеличиваем счетчик
-						if ok {
-							counter++
-						}
+					surl := strings.Split(domain, ".")
+					if len(surl) > 2 {
+						domain = surl[len(surl)-2] + "." + surl[len(surl)-1]
 					}
-					Addmap[siteID] = append(Addmap[siteID], text)
+
+					siteID, ok = Sitemap[domain]
+					//Если сайт в списке нужных, то увеличиваем счетчик, ищем синонимы
+					if ok {
+						counter++
+					}
+
+					addmap[siteID] = append(addmap[siteID], text)
 				}
-				Fullmap[text] = false
+				fullmap[text] = false
 			}
 			if err := scanner.Err(); err != nil {
 				log.Fatal(err)
 			}
 		}
 	}
-	if adf {
+	//Срабатывает, если в папке есть новые строки. Для result это всегда 0
+	if counter > 0 {
 		fmt.Println("Added new lines - ", counter)
 	}
+}
+
+// get domain name via SOuser1660210
+func extractDomain(urlLikeString string) string {
+
+	urlLikeString = strings.TrimSpace(urlLikeString)
+
+	if regexp.MustCompile(`^https?`).MatchString(urlLikeString) {
+		read, _ := url.Parse(urlLikeString)
+		urlLikeString = read.Host
+	}
+
+	if regexp.MustCompile(`^www\.`).MatchString(urlLikeString) {
+		urlLikeString = regexp.MustCompile(`^www\.`).ReplaceAllString(urlLikeString, "")
+	}
+
+	return regexp.MustCompile(`([a-z0-9\-]+\.)+[a-z0-9\-]+`).FindString(urlLikeString)
 }
