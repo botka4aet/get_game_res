@@ -34,19 +34,17 @@ func init() {
 	//Папка настройки
 	CheckDir("config")
 
-	//Белый список и синонимы
-	// _, err2 := os.Stat("config/sites.txt")
-	// if os.IsNotExist(err2) {
-	// 	_, err = file.WriteString("#Site[:Alias[:Alias[:Alias]]]\n#yandex:ya\n")
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
-	// }
-
 	//json time
+	_, errf := os.Stat("config/siteconfig.json")
 	file, err := os.OpenFile("config/siteconfig.json", os.O_RDWR|os.O_APPEND|os.O_CREATE, 0777)
 	if err != nil {
 		log.Fatal(err.Error())
+	}
+	if os.IsNotExist(errf) {
+		_, err = file.WriteString(`{"sites":[{"name":"","domain":[""],"alias":[{"baseurl":"","backupurl":[""]}]}]}`)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
 	}
 	defer file.Close()
 
@@ -60,7 +58,7 @@ func init() {
 	for i := 0; i < len(sites.Sites); i++ {
 		siteinfo := sites.Sites[i]
 		id, ok := Filemap[siteinfo.Name]
-		if !ok {
+		if !ok && siteinfo.Name != "" {
 			sitecounter++
 			id = sitecounter
 			SitemapID[id] = siteinfo

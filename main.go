@@ -82,6 +82,7 @@ func fillmap(fname string, addmap map[int][]string, fullmap map[string]bool) {
 			scanner := bufio.NewScanner(file)
 			for scanner.Scan() {
 				text := scanner.Text()
+				text = strings.ReplaceAll(strings.ReplaceAll(text, "https://", ""), "http://", "")
 
 				//Если уже есть, то пропускаем
 				_, ok := fullmap[text]
@@ -101,6 +102,7 @@ func fillmap(fname string, addmap map[int][]string, fullmap map[string]bool) {
 					//Если сайт в списке нужных, то увеличиваем счетчик, ищем синонимы
 					if ok {
 						counter++
+						text = replacealias(text, siteID)
 					}
 
 					addmap[siteID] = append(addmap[siteID], text)
@@ -120,17 +122,27 @@ func fillmap(fname string, addmap map[int][]string, fullmap map[string]bool) {
 
 // get domain name via SOuser1660210
 func extractDomain(urlLikeString string) string {
-
 	urlLikeString = strings.TrimSpace(urlLikeString)
-
 	if regexp.MustCompile(`^https?`).MatchString(urlLikeString) {
 		read, _ := url.Parse(urlLikeString)
 		urlLikeString = read.Host
 	}
-
 	if regexp.MustCompile(`^www\.`).MatchString(urlLikeString) {
 		urlLikeString = regexp.MustCompile(`^www\.`).ReplaceAllString(urlLikeString, "")
 	}
-
 	return regexp.MustCompile(`([a-z0-9\-]+\.)+[a-z0-9\-]+`).FindString(urlLikeString)
+}
+
+// Поиск синонимов и замена на базовую ссылку
+func replacealias(url string, id int) string {
+	aliases := SitemapID[id].Aliases
+	for _, alias := range aliases {
+		for _, backupurl := range alias.Backupurl {
+			if strings.TrimSpace(backupurl) == "" {
+				continue
+			}
+			url = strings.ReplaceAll(url, backupurl, alias.Baseurl)
+		}
+	}
+	return url
 }
